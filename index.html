@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>空席メーカーPro (7Colors)</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 10px; }
+        .map-container { 
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; 
+            width: 260px; margin: 15px auto; background: #333; padding: 15px; border-radius: 15px; 
+        }
+        .table { 
+            aspect-ratio: 1/1; border-radius: 10px; display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; cursor: pointer; font-weight: bold; 
+            font-size: 13px; background: #444; color: #888;
+        }
+        .active-table { background: #e8f5e9; color: #2e7d32; }
+        .active-table.occupied { background: #ffebee; color: #c62828; }
+        .upload-section { margin: 10px 0; padding: 10px; background: #444; border-radius: 10px; font-size: 12px; }
+        .upload-row { display: flex; justify-content: space-around; gap: 5px; margin-top: 5px; }
+
+        .color-selector { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+        .color-dot { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2px solid #fff; }
+        
+        .controls { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+        button { padding: 15px 30px; font-size: 18px; font-weight: bold; width: 85%; cursor: pointer; border: none; border-radius: 50px; transition: 0.3s; }
+        
+        /* 特定のボタン */
+        .btn-gen { background: #00c853; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        .btn-close { background: #3f51b5; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        .btn-reset { background: #555; color: #ccc; font-size: 12px; padding: 8px; margin-top: 10px; width: 50%; border-radius: 5px;}
+        
+        #resultImage { margin-top: 20px; width: 100%; max-width: 300px; border-radius: 15px; display: none; border: 2px solid #555; }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+    <h3 id="uiTitle" style="color: #00c853; margin: 10px 0;">空席管理システム</h3>
+    <div class="map-container" id="map"></div>
+    <div class="upload-section">
+        <div class="info">カラー選択</div>
+        <div class="color-selector">
+            <div class="color-dot" style="background:#00c853" onclick="setTheme('#00c853')"></div>
+            <div class="color-dot" style="background:#ff80ab" onclick="setTheme('#ff80ab')"></div>
+            <div class="color-dot" style="background:#29b6f6" onclick="setTheme('#29b6f6')"></div>
+            <div class="color-dot" style="background:#ff5722" onclick="setTheme('#ff5722')"></div>
+            <div class="color-dot" style="background:#ffb300" onclick="setTheme('#ffb300')"></div>
+            <div class="color-dot" style="background:#9c27b0" onclick="setTheme('#9c27b0')"></div>
+            <div class="color-dot" style="background:#37474f" onclick="setTheme('#37474f')"></div>
+        </div>
+        <div class="upload-row">
+            <div>背景写真<br><input type="file" id="bgInput" accept="image/*" style="width:90px;"></div>
+            <div>ロゴ(固定)<br><input type="file" id="logoInput" accept="image/*" style="width:90px;"></div>
+        </div>
+    </div>
+    <div class="controls">
+        <button class="btn-gen" id="genBtn" onclick="generateImage(false)">画像を生成する</button>
+        <button class="btn-close" onclick="generateImage(true)">本日の営業を終了する</button>
+        <button class="btn-reset" onclick="resetAll()">全てのデータをリセット</button>
+    </div>
+    <div id="outputArea"><img id="resultImage" alt="生成画像"><p id="saveHint" style="display:none; font-size:14px; color:#aaa;">↑長押しで写真を保存↑</p></div>
+    <canvas id="mainCanvas" width="1080" height="1920"></canvas>
+
+    <script>
+        const tableConfigs = { 1: { name: "T3", seats: 5 }, 2: { name: "T4", seats: 4 }, 4: { name: "T2", seats: 4 }, 7: { name: "T1", seats: 5 }, 9: { name: "カウンター", seats: 4 } };
+        let occupiedTables = new Set(); let history = []; let userBgImage = null; let logoImage = null;
+        let themeColor = localStorage.getItem('themeColor') || '#00c853';
+
+        function setTheme(color) {
+            themeColor = color; localStorage.setItem('themeColor', color);
+            document.getElementById('uiTitle').style.color = color;
+            const genBtn = document.getElementById('genBtn');
+            genBtn.style.backgroundColor = color;
+            // 明るい色の時は文字を黒にする（視認性対策）
+            const brightness = parseInt(color.substring(1,3), 16) * 0.299 + parseInt(color.substring(3,5), 16) * 0.587 + parseInt(color.substring(5,7), 16) * 0.114;
+            genBtn.style.color = brightness > 186 ? "#000" : "#fff";
+        }
+
+        function loadData() {
+            const savedOccupied = localStorage.getItem('occupied'); const savedHistory = localStorage.getItem('history'); const savedLogo = localStorage.getItem('userLogo');
+            if (savedOccupied) occupiedTables = new Set(JSON.parse(savedOccupied)); if (savedHistory) history = JSON.parse(savedHistory);
+            if (savedLogo) { logoImage = new Image(); logoImage.src = savedLogo; } setTheme(themeColor);
+        }
+
+        function saveData() { localStorage.setItem('occupied', JSON.stringify([...occupiedTables])); localStorage.setItem('history', JSON.stringify(history)); }
+        function resetAll() { if (confirm("リセットしますか？")) { localStorage.removeItem('occupied'); localStorage.removeItem('history'); location.reload(); } }
+
+        document.getElementById('bgInput').onchange = (e) => { const r = new FileReader(); r.onload = (ev) => { userBgImage = new Image(); userBgImage.src = ev.target.result; }; r.readAsDataURL(e.target.files[0]); };
+        document.getElementById('logoInput').onchange = (e) => { const r = new FileReader(); r.onload = (ev) => { logoImage = new Image(); logoImage.src = ev.target.result; localStorage.setItem('userLogo', ev.target.result); }; r.readAsDataURL(e.target.files[0]); };
+
+        loadData(); const mapDiv = document.getElementById('map');
+        for (let i = 1; i <= 9; i++) {
+            const btn = document.createElement('div'); btn.className = 'table';
+            if (tableConfigs[i]) {
+                btn.classList.add('active-table'); if (occupiedTables.has(i)) btn.classList.add('occupied');
+                btn.innerHTML = `<span>${tableConfigs[i].name}</span><span style="font-size:9px">${tableConfigs[i].seats}席</span>`;
+                btn.onclick = () => { occupiedTables.has(i) ? occupiedTables.delete(i) : occupiedTables.add(i); btn.classList.toggle('occupied'); saveData(); };
+            } mapDiv.appendChild(btn);
+        }
+
+        function generateImage(isClosed) {
+            const canvas = document.getElementById('mainCanvas'); const ctx = canvas.getContext('2d');
+            ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0, 0, 1080, 1920);
+            if (userBgImage) {
+                const ca = 1080/1920, ia = userBgImage.width/userBgImage.height; let dw, dh, ox, oy;
+                if (ia > ca) { dh = userBgImage.height; dw = userBgImage.height*ca; ox = (userBgImage.width-dw)/2; oy = 0; }
+                else { dw = userBgImage.width; dh = userBgImage.width/ca; ox = 0; oy = (userBgImage.height-dh)/2; }
+                ctx.drawImage(userBgImage, ox, oy, dw, dh, 0, 0, 1080, 1920);
+                ctx.fillStyle = isClosed ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.5)"; ctx.fillRect(0, 0, 1080, 1920);
+            }
+            if (logoImage) { const lw = 280, lh = logoImage.height*(lw/logoImage.width); ctx.drawImage(logoImage, 540-(lw/2), 150, lw, lh); }
+
+            ctx.shadowBlur = 15; ctx.shadowColor = "black"; ctx.textAlign = "center";
+            let remT = 0, remS = 0; for (let id in tableConfigs) { if (!occupiedTables.has(parseInt(id))) { remT++; remS += tableConfigs[id].seats; } }
+            if (isClosed) {
+                ctx.fillStyle = '#fff'; ctx.font = "bold 90px sans-serif"; ctx.fillText("本日の営業は", 540, 750); ctx.fillText("終了いたしました", 540, 880);
+                ctx.fillStyle = themeColor; ctx.font = "bold 65px sans-serif"; ctx.fillText("本日も多くのご来店", 540, 1100); ctx.fillText("ありがとうございました！", 540, 1220);
+            } else {
+                ctx.fillStyle = themeColor; ctx.font = "bold 80px sans-serif"; ctx.fillText("本日の空席状況", 540, 480);
+                let curText = remT === 0 ? "満席御礼！" : `残り ${remT}卓 / ${remS}席`;
+                if (history.length === 0 || history[history.length - 1] !== curText) { history.push(curText); if (history.length > 5) history.shift(); saveData(); }
+                history.forEach((text, index) => {
+                    const isLast = (index === history.length - 1); const y = 700 + (index * 180);
+                    if (!isLast) {
+                        ctx.font = "55px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.fillText(text, 540, y);
+                        ctx.strokeStyle = "rgba(255, 0, 0, 0.7)"; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(350, y-18); ctx.lineTo(730, y-18); ctx.stroke();
+                    } else {
+                        ctx.font = (remT === 0) ? "bold 170px sans-serif" : "bold 115px sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText(text, 540, y + 40);
+                    }
+                });
+            }
+            const now = new Date(); const ds = `${now.getFullYear()}/${(now.getMonth()+1).toString().padStart(2,'0')}/${now.getDate().toString().padStart(2,'0')} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')} 現在`;
+            ctx.shadowBlur = 0; ctx.font = "42px sans-serif"; ctx.fillStyle = "#ccc"; ctx.fillText(ds, 540, 1720);
+            ctx.fillStyle = themeColor; let bm = isClosed ? "またのご来店をお待ちしております" : (remT === 0 ? "お電話にて空席待ちを承ります！" : "ご来店お待ちしております！"); ctx.fillText(bm, 540, 1800);
+            const imgEl = document.getElementById('resultImage'); imgEl.src = canvas.toDataURL('image/png'); imgEl.style.display = 'inline-block';
+            document.getElementById('saveHint').style.display = 'block'; window.scrollTo({top: document.getElementById('outputArea').offsetTop, behavior: 'smooth'});
+        }
+    </script>
+</body>
+</html>
