@@ -93,7 +93,7 @@
             cols: 3, rows: 3,
             tables: Array(9).fill().map((_, i) => ({ name: `席${i+1}`, seats: 4, active: true, isCounter: false }))
         };
-	const FIXED_BRAND = "不自由"
+	const FIXED_BRAND = "U"
         let occupiedTables = new Set(JSON.parse(localStorage.getItem('occupied') || "[]"));
         let history = JSON.parse(localStorage.getItem('history') || "[]");
         let userBgImage = null, logoImage = null, themeColor = localStorage.getItem('themeColor') || '#00c853';
@@ -271,4 +271,5 @@ function generateImage(mode) { // 引数を mode に変更
     </script>
 </body>
 </html>
+
 
